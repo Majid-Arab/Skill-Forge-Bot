@@ -1,59 +1,36 @@
-import discord
-from discord.ext import commands
-from collections import defaultdict
-import time
+# cogs/spam_control.py
 
-class SpamControlCog(commands.Cog):
+import discord
+from discord.ext import commands, tasks
+from collections import defaultdict
+from config import THREAD_SPAM_THRESHOLD
+
+class SpamControl(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.user_threads = defaultdict(list)  # Tracks thread creation times per user
-        self.user_posts = defaultdict(list)   # Tracks thread posts per user in channels
-        self.thread_limit = 3                 # Max threads per user within time window
-        self.time_window = 600                # Time window in seconds (10 minutes)
+        self.thread_message_counts = defaultdict(int)
+        self.reset_counts.start()
 
-    @commands.Cog.listener()
-    async def on_thread_create(self, thread):
-        user = thread.owner
-        now = time.time()
+    def cog_unload(self):
+        self.reset_counts.cancel()
 
-        # Track thread creation times
-        self.user_threads[user.id] = [
-            t for t in self.user_threads[user.id] if now - t < self.time_window
-        ]
-        self.user_threads[user.id].append(now)
-
-        # Check if thread creation exceeds limit
-        if len(self.user_threads[user.id]) > self.thread_limit:
-            await thread.delete()
-            await user.send(
-                f"⚠️ You have exceeded the thread creation limit in {thread.guild.name}. Please wait before creating more threads."
-            )
-            print(f"Deleted spam thread by {user.name}")
+    # Background task to reset message counts every minute
+    @tasks.loop(minutes=1)
+    async def reset_counts(self):
+        self.thread_message_counts.clear()
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        if message.channel.type != discord.ChannelType.public_thread:
-            return  # Ignore non-thread messages
+        if message.author.bot:
+            return
 
-        user = message.author
-        channel = message.channel
+        if isinstance(message.channel, discord.Thread):
+            thread_id = message.channel.id
+            self.thread_message_counts[thread_id] += 1
 
-        # Track user posts in threads
-        now = time.time()
-        self.user_posts[user.id].append((channel.id, now))
-
-        # Check for duplicate posts across channels
-        recent_posts = [
-            post for post in self.user_posts[user.id] if now - post[1] < self.time_window
-        ]
-        channels_posted = {post[0] for post in recent_posts}
-
-        if len(channels_posted) > 1:  # User is spamming across multiple threads
-            await message.delete()
-            await user.send(
-                f"⚠️ Please avoid spamming your content across multiple threads in {message.guild.name}."
-            )
-            print(f"Deleted spam message by {user.name} in {channel.name}")
+            if self.thread_message_counts[thread_id] > THREAD_SPAM_THRESHOLD:
+                await message.channel.send("This thread is being locked due to spam.")
+                await message.channel.edit(locked=True)
 
 async def setup(bot):
-    await bot.add_cog(SpamControlCog(bot))
+    await bot.add_cog(SpamControl(bot))
