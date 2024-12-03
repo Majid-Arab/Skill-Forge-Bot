@@ -7,18 +7,21 @@ class WelcomeCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
-        print(f"{member.name} has joined the server.")  # Log the join event
+        print(f"{member} joined the server.")  # Logs the member join event
+
         channel = discord.utils.get(member.guild.text_channels, name="welcome")
-        if channel:
-            print(f"Found the channel: {channel.name}")  # Log channel detection
-            embed = discord.Embed(
-                title="Welcome to the Server!",
-                description=f"Hi {member.mention}, welcome!",
-                color=discord.Color.blue()
-            )
-            await channel.send(embed=embed)
-        else:
+        if not channel:
             print("Welcome channel not found.")
+            return
+
+        print(f"Sending welcome message to {member}.")
+        embed = discord.Embed(
+            title="Welcome!",
+            description=f"Hi {member.mention}, glad to have you here!",
+            color=discord.Color.blue()
+        )
+        await channel.send(embed=embed)
+
 
 
 async def setup(bot):
